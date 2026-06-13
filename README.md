@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Architecture-x64_Assembly-8A2BE2?style=for-the-badge&logo=linux&logoColor=white">
   <img src="https://img.shields.io/badge/Execution-Zero_Overhead-black?style=for-the-badge&logo=c&logoColor=white">
-  <img src="https://img.shields.io/badge/Payload-XOR_0x5A-darkred?style=for-the-badge&logo=webassembly&logoColor=white">
+  <img src="https://img.shields.io/badge/Payload-XOR_-darkred?style=for-the-badge&logo=webassembly&logoColor=white">
   <img src="https://img.shields.io/badge/Security-Anti--DPI_Stealth-purple?style=for-the-badge&logo=hackthebox&logoColor=white">
 </p>
 
