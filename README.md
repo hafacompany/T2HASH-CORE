@@ -228,7 +228,7 @@ v2rayNG کاربر  →  سرور ایران :9000 (تونل client)
 
 تحتِ مجوزِ **MIT** — به فایلِ [LICENSE](./LICENSE) مراجعه کن.
 
-> ⚠️ این ابزار برای دفاع از آزادیِ دسترسی به اطلاعات ساخته شده است.
+> ⚠️ .
 
 <div align="center">
 
@@ -238,5 +238,5 @@ v2rayNG کاربر  →  سرور ایران :9000 (تونل client)
 
 </div>
 READMEEOF
-echo "written"; wc -l /home/claude/t2tunnel/README.md
+
 Done
