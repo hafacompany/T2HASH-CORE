@@ -1,4 +1,3 @@
-cat > /home/claude/t2tunnel/README.md << 'READMEEOF'
 <div align="right">
 
 <img src="https://img.shields.io/badge/t2hash-tunnel-7c5cff?style=for-the-badge&labelColor=0b0b14" alt="t2hash"/>
