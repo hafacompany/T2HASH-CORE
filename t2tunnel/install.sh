@@ -9,15 +9,18 @@
 #   Bootstrap installer  ->  builds & starts the Web Panel, then prints a
 #   login link. The rest of the setup happens inside the panel (in browser).
 #
-#   Usage:  sudo bash install.sh
+#   Usage:
+#     sudo bash install.sh            # default port 2331 (use on IRAN server)
+#     sudo bash install.sh 2332       # custom port    (use on FOREIGN server)
 # ===========================================================================
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PANEL_DIR="${REPO_DIR}/webpanel"
 PANEL_BIN="t2panel"
-PANEL_PORT="${PANEL_PORT:-2331}"
-PANEL_ADDR="127.0.0.1:${PANEL_PORT}"
+# port is decided interactively below (or via arg/env override)
+PANEL_PORT="${1:-${PANEL_PORT:-}}"
+SERVER_ROLE=""
 
 P=$'\033[38;5;80m'; C=$'\033[38;5;87m'; A=$'\033[38;5;215m'
 G=$'\033[38;5;83m'; R=$'\033[38;5;203m'; D=$'\033[38;5;245m'
@@ -59,6 +62,24 @@ ART
 if [[ "${EUID}" -ne 0 ]]; then err "run with sudo:  sudo bash install.sh"; exit 1; fi
 banner
 
+# ---- 0) which server is this? (sets the panel port) ----
+if [[ -z "${PANEL_PORT}" ]]; then
+  printf "\n  ${W}This server is:${N}\n"
+  printf "    ${P}1)${N} Iran server     ${D}(panel port 2331)${N}\n"
+  printf "    ${P}2)${N} Foreign server  ${D}(panel port 2332)${N}\n"
+  while true; do
+    printf "  ${C}Choose [1/2]: ${N}"
+    read -r CHOICE || true
+    case "${CHOICE}" in
+      1) PANEL_PORT=2331; SERVER_ROLE="Iran";    break ;;
+      2) PANEL_PORT=2332; SERVER_ROLE="Foreign"; break ;;
+      *) wrn "type 1 or 2" ;;
+    esac
+  done
+  ok "selected: ${SERVER_ROLE} server  ->  port ${PANEL_PORT}"
+fi
+PANEL_ADDR="127.0.0.1:${PANEL_PORT}"
+
 printf "\n  ${W}1) Prerequisites${N}\n"
 if command -v apt-get >/dev/null 2>&1; then
   spin "apt update"  apt-get update -y
@@ -80,6 +101,9 @@ cd "${PANEL_DIR}"
 export GOTOOLCHAIN=local
 spin "go build (panel)"  go build -trimpath -ldflags "-s -w" -o "${PANEL_BIN}" .
 ok "panel built -> ${PANEL_DIR}/${PANEL_BIN}"
+
+# panel serves panel.html from the repo dir; make sure it's there
+cp -f "${PANEL_DIR}/panel.html" "${REPO_DIR}/panel.html" 2>/dev/null && ok "panel.html در دسترسِ پنل قرار گرفت" || true
 
 printf "\n  ${W}3) Credentials${N}\n"
 DB_FILE="${PANEL_DIR}/panel.db.json"
