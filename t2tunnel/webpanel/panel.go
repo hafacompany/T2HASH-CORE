@@ -35,7 +35,7 @@ const ensureGoScript = `
 set -e
 need=1
 if command -v go >/dev/null 2>&1; then
-  cur=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
+  cur=$(go version 2>/dev/null | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
   major=$(echo "$cur" | cut -d. -f1)
   minor=$(echo "$cur" | cut -d. -f2)
   if [ "${major:-0}" -gt 1 ] || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 22 ]; }; then
@@ -43,21 +43,25 @@ if command -v go >/dev/null 2>&1; then
   fi
 fi
 if [ "$need" -eq 1 ]; then
-  arch=$(uname -m)
-  case "$arch" in
-    x86_64) goarch="amd64" ;;
-    aarch64) goarch="arm64" ;;
-    armv7l) goarch="armv6l" ;;
-    *) goarch="amd64" ;;
-  esac
-  apt-get remove -y golang-go >/dev/null 2>&1 || true
-  rm -rf /usr/local/go
-  curl -fsSL "https://go.dev/dl/go` + GoVersion + `.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
-  tar -C /usr/local -xzf /tmp/go.tar.gz
-  rm -f /tmp/go.tar.gz
-  grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+  if command -v snap >/dev/null 2>&1 && snap install go --classic >/dev/null 2>&1; then
+    export PATH=$PATH:/snap/bin
+  else
+    arch=$(uname -m)
+    case "$arch" in
+      x86_64) goarch="amd64" ;;
+      aarch64) goarch="arm64" ;;
+      armv7l) goarch="armv6l" ;;
+      *) goarch="amd64" ;;
+    esac
+    apt-get remove -y golang-go >/dev/null 2>&1 || true
+    rm -rf /usr/local/go
+    curl -fL --retry 3 "https://go.dev/dl/go` + GoVersion + `.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz || true
+    [ -f /tmp/go.tar.gz ] && tar -C /usr/local -xzf /tmp/go.tar.gz && rm -f /tmp/go.tar.gz
+    grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+  fi
 fi
-export PATH=$PATH:/usr/local/go/bin
+export PATH=$PATH:/usr/local/go/bin:/snap/bin
 `
 
 type DB struct {
