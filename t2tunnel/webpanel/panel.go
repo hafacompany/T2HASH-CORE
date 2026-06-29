@@ -62,6 +62,8 @@ if [ "$need" -eq 1 ]; then
   fi
 fi
 export PATH=$PATH:/usr/local/go/bin:/snap/bin
+go env -w GOPROXY=https://goproxy.io,direct 2>/dev/null || true
+go env -w GOSUMDB=off 2>/dev/null || true
 `
 
 type DB struct {
