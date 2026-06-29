@@ -20,7 +20,6 @@ import (
 	"time"
 )
 
-
 var (
 	flagAddr    = flag.String("addr", "127.0.0.1:2331", "آدرس بایند پنل (پیش‌فرض فقط localhost)")
 	flagRepo    = flag.String("repo", ".", "مسیر پوشه‌ی پروژه‌ی t2tunnel (جایی که install.sh و .go ها هستند)")
@@ -30,13 +29,41 @@ var (
 )
 
 const Version = "2.3.1"
+const GoVersion = "1.22.5"
 
-
+const ensureGoScript = `
+set -e
+need=1
+if command -v go >/dev/null 2>&1; then
+  cur=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
+  major=$(echo "$cur" | cut -d. -f1)
+  minor=$(echo "$cur" | cut -d. -f2)
+  if [ "${major:-0}" -gt 1 ] || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 22 ]; }; then
+    need=0
+  fi
+fi
+if [ "$need" -eq 1 ]; then
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64) goarch="amd64" ;;
+    aarch64) goarch="arm64" ;;
+    armv7l) goarch="armv6l" ;;
+    *) goarch="amd64" ;;
+  esac
+  apt-get remove -y golang-go >/dev/null 2>&1 || true
+  rm -rf /usr/local/go
+  curl -fsSL "https://go.dev/dl/go` + GoVersion + `.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
+  tar -C /usr/local -xzf /tmp/go.tar.gz
+  rm -f /tmp/go.tar.gz
+  grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+fi
+export PATH=$PATH:/usr/local/go/bin
+`
 
 type DB struct {
 	User     string `json:"user"`
-	PassHash string `json:"pass_hash"` // sha256(salt + password), hex
-	Salt     string `json:"salt"`      // hex
+	PassHash string `json:"pass_hash"`
+	Salt     string `json:"salt"`
 	mu       sync.Mutex
 	path     string
 }
@@ -45,7 +72,7 @@ func loadDB(path string) (*DB, bool) {
 	db := &DB{path: path, User: "admin"}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return db, false // fresh
+		return db, false
 	}
 	_ = json.Unmarshal(b, db)
 	db.path = path
@@ -84,10 +111,9 @@ func (d *DB) check(user, pw string) bool {
 	return subtle.ConstantTimeCompare(want, got) == 1
 }
 
-
 type Sessions struct {
 	mu sync.Mutex
-	m  map[string]time.Time // token -> expiry
+	m  map[string]time.Time
 }
 
 func newSessions() *Sessions { return &Sessions{m: map[string]time.Time{}} }
@@ -118,7 +144,6 @@ func (s *Sessions) drop(tok string) {
 	s.mu.Unlock()
 }
 
-
 type Server struct {
 	db   *DB
 	sess *Sessions
@@ -133,7 +158,7 @@ func main() {
 	srv := &Server{db: db, sess: newSessions()}
 
 	if !exists {
-		pw := randHex(9) // 18 hex chars
+		pw := randHex(9)
 		db.setPassword(pw)
 		if err := db.save(); err != nil {
 			log.Fatalf("نمی‌توان دیتابیس را ذخیره کرد: %v", err)
@@ -184,7 +209,6 @@ func warnIfPublic(addr string) {
 	}
 }
 
-
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, _ := r.Cookie("t2sess")
@@ -203,7 +227,6 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct{ User, Pass string }
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in)
-	// small constant delay to blunt brute force
 	time.Sleep(250 * time.Millisecond)
 	if !s.db.check(in.User, in.Pass) {
 		writeJSON(w, 401, map[string]any{"error": "نام کاربری یا رمز اشتباه است"})
@@ -226,15 +249,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := map[string]any{
 		"version":   Version,
 		"repo":      *flagRepo,
 		"service":   *flagService,
-		"goVersion": firstLine(run("go", "version")),
+		"goVersion": firstLine(run("sh", "-c", "export PATH=$PATH:/usr/local/go/bin; go version")),
 		"binExists": fileExists(*flagBin),
-		"libpcap":   strings.Contains(run("sh", "-c", "ldconfig -p 2>/dev/null | grep -c libpcap"), "") && hasLibpcap(),
+		"libpcap":   hasLibpcap(),
 	}
 	active := strings.TrimSpace(run("systemctl", "is-active", *flagService))
 	st["serviceActive"] = active == "active"
@@ -246,7 +268,6 @@ func hasLibpcap() bool {
 	return strings.Contains(run("sh", "-c", "ldconfig -p 2>/dev/null | grep libpcap"), "libpcap")
 }
 
-
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Action string }
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in)
@@ -254,12 +275,16 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	var cmd *exec.Cmd
 	switch in.Action {
 	case "install-deps":
-		cmd = exec.Command("sh", "-c", "apt-get update -y && apt-get install -y golang-go libpcap-dev build-essential iptables")
+		cmd = exec.Command("sh", "-c",
+			"apt-get update -y && apt-get install -y libpcap-dev build-essential iptables curl tar; "+ensureGoScript)
 	case "build":
 		cmd = exec.Command("sh", "-c",
-			"cd '"+*flagRepo+"' && [ -f go.mod ] || go mod init t2hash/tunnel; "+
-				"GOTOOLCHAIN=local go get github.com/xtaci/kcp-go/v5@v5.6.18 && "+
-				"go get github.com/google/gopacket && go get github.com/xtaci/smux && "+
+			ensureGoScript+
+				"cd '"+*flagRepo+"' && [ -f go.mod ] || go mod init t2hash/tunnel; "+
+				"export GOTOOLCHAIN=local; export GOPROXY=https://goproxy.io,direct; "+
+				"go get github.com/refraction-networking/utls@v1.6.7 && "+
+				"go get github.com/xtaci/kcp-go/v5@v5.6.18 && "+
+				"go get github.com/google/gopacket && go get github.com/gorilla/websocket && go get github.com/xtaci/smux && "+
 				"go mod tidy && go build -trimpath -ldflags '-s -w' -o t2tunnel . && "+
 				"install -m 0755 t2tunnel '"+*flagBin+"'")
 	case "service-start":
@@ -287,12 +312,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	out := run("journalctl", "-u", *flagService, "-n", "200", "--no-pager", "-o", "short-iso")
 	writeJSON(w, 200, map[string]any{"logs": out})
 }
-
 
 func (s *Server) handleSaveService(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Unit string }
@@ -313,7 +336,6 @@ func (s *Server) handleSaveService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "path": path})
 }
 
-
 func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Binary  bool `json:"binary"`
@@ -322,8 +344,8 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in)
 
-	var log []string
-	add := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+	var logs []string
+	add := func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
 
 	if in.Service {
 		run("systemctl", "stop", *flagService)
@@ -357,9 +379,8 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		add("فایل‌های موقت بیلد پاک شدند")
 	}
 
-	writeJSON(w, 200, map[string]any{"ok": true, "log": strings.Join(log, "\n")})
+	writeJSON(w, 200, map[string]any{"ok": true, "log": strings.Join(logs, "\n")})
 }
-
 
 func (s *Server) handlePeer(w http.ResponseWriter, r *http.Request) {
 	unit := "/etc/systemd/system/" + *flagService + ".service"
@@ -368,16 +389,16 @@ func (s *Server) handlePeer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"configured": false, "reachable": false, "reason": "سرویس هنوز ساخته نشده"})
 		return
 	}
-	exec := ""
+	execLine := ""
 	for _, ln := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(ln), "ExecStart=") {
-			exec = strings.TrimPrefix(strings.TrimSpace(ln), "ExecStart=")
+			execLine = strings.TrimPrefix(strings.TrimSpace(ln), "ExecStart=")
 			break
 		}
 	}
-	peers := parsePeers(exec)
+	peers := parsePeers(execLine)
 	role := "server"
-	if strings.Contains(exec, "-mode client") {
+	if strings.Contains(execLine, "-mode client") {
 		role = "client"
 	}
 	if len(peers) == 0 {
@@ -401,8 +422,8 @@ func (s *Server) handlePeer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func parsePeers(exec string) []string {
-	tok := strings.Fields(exec)
+func parsePeers(execLine string) []string {
+	tok := strings.Fields(execLine)
 	var out []string
 	for i := 0; i < len(tok); i++ {
 		switch tok[i] {
@@ -445,7 +466,6 @@ func tcpReachable(addr string, timeout time.Duration) bool {
 	return true
 }
 
-
 const xrayBin = "/usr/local/bin/xray"
 
 func (s *Server) handleXrayStatus(w http.ResponseWriter, r *http.Request) {
@@ -472,7 +492,6 @@ func (s *Server) handleXrayInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -488,7 +507,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "<!doctype html><meta charset=utf-8><body style='font-family:sans-serif;background:#080812;color:#e8e8f5;padding:40px'>"+
 		"<h2>panel.html پیدا نشد</h2><p>فایل <code>panel.html</code> را کنار باینری پنل (در پوشه‌ی repo) بگذار.</p>")
 }
-
 
 func run(name string, args ...string) string {
 	out, _ := exec.Command(name, args...).CombinedOutput()
