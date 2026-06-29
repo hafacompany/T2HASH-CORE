@@ -11,7 +11,41 @@ import (
 	"math/big"
 	"net"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
+
+var (
+	useUTLS  = false
+	fragSize = 0
+)
+
+
+type fragConn struct {
+	net.Conn
+	firstDone bool
+	chunk     int
+}
+
+func (c *fragConn) Write(b []byte) (int, error) {
+	if c.firstDone || c.chunk <= 0 {
+		return c.Conn.Write(b)
+	}
+	c.firstDone = true
+	total := 0
+	for i := 0; i < len(b); i += c.chunk {
+		end := i + c.chunk
+		if end > len(b) {
+			end = len(b)
+		}
+		n, err := c.Conn.Write(b[i:end])
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
 
 func generateSelfSignedCert(sni string) (tls.Certificate, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -76,21 +110,57 @@ func NewTLSListener(addr, sni string) (*TLSListener, error) {
 }
 
 func dialTLS(addr, sni string) (net.Conn, error) {
-	config := &tls.Config{
+	if !useUTLS && fragSize <= 0 {
+		config := &tls.Config{
+			ServerName:         sni,
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS13,
+		}
+		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second}
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, config)
+		if err != nil {
+			return nil, err
+		}
+		return conn, nil
+	}
+
+	raw, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if tc, ok := raw.(*net.TCPConn); ok {
+		tc.SetNoDelay(true)
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(15 * time.Second)
+	}
+
+	var under net.Conn = raw
+	if fragSize > 0 {
+		under = &fragConn{Conn: raw, chunk: fragSize}
+	}
+
+	if useUTLS {
+		uconn := utls.UClient(under, &utls.Config{
+			ServerName:         sni,
+			InsecureSkipVerify: true,
+		}, utls.HelloChrome_Auto)
+		if err := uconn.Handshake(); err != nil {
+			raw.Close()
+			return nil, fmt.Errorf("uTLS handshake: %v", err)
+		}
+		return uconn, nil
+	}
+
+	tconn := tls.Client(under, &tls.Config{
 		ServerName:         sni,
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS12,
 		MaxVersion:         tls.VersionTLS13,
-	}
-
-	dialer := &net.Dialer{
-		Timeout:   10 * time.Second,
-		KeepAlive: 15 * time.Second,
-	}
-
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, config)
-	if err != nil {
+	})
+	if err := tconn.Handshake(); err != nil {
+		raw.Close()
 		return nil, err
 	}
-	return conn, nil
+	return tconn, nil
 }
