@@ -20,7 +20,6 @@ var (
 	fragSize = 0
 )
 
-
 type fragConn struct {
 	net.Conn
 	firstDone bool
@@ -52,7 +51,6 @@ func generateSelfSignedCert(sni string) (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -66,12 +64,10 @@ func generateSelfSignedCert(sni string) (tls.Certificate, error) {
 		BasicConstraintsValid: true,
 		DNSNames:              []string{sni},
 	}
-
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-
 	return tls.Certificate{
 		Certificate: [][]byte{derBytes},
 		PrivateKey:  priv,
@@ -87,7 +83,6 @@ func NewTLSListener(addr, sni string) (*TLSListener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("خطا در ساخت سرت: %v", err)
 	}
-
 	config := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
@@ -101,7 +96,6 @@ func NewTLSListener(addr, sni string) (*TLSListener, error) {
 			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 		},
 	}
-
 	ln, err := tls.Listen("tcp", addr, config)
 	if err != nil {
 		return nil, err
@@ -124,7 +118,6 @@ func dialTLS(addr, sni string) (net.Conn, error) {
 		}
 		return conn, nil
 	}
-
 	raw, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, err
@@ -134,12 +127,10 @@ func dialTLS(addr, sni string) (net.Conn, error) {
 		tc.SetKeepAlive(true)
 		tc.SetKeepAlivePeriod(15 * time.Second)
 	}
-
 	var under net.Conn = raw
 	if fragSize > 0 {
 		under = &fragConn{Conn: raw, chunk: fragSize}
 	}
-
 	if useUTLS {
 		uconn := utls.UClient(under, &utls.Config{
 			ServerName:         sni,
@@ -151,7 +142,6 @@ func dialTLS(addr, sni string) (net.Conn, error) {
 		}
 		return uconn, nil
 	}
-
 	tconn := tls.Client(under, &tls.Config{
 		ServerName:         sni,
 		InsecureSkipVerify: true,
