@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
-# ===========================================================================
-#   _____ ___  _   _    _    ____  _   _
-#  |_   _|__ \| | | |  / \  / ___|| | | |
-#    | |   ) | |_| | / _ \ \___ \| |_| |
-#    | |  / /|  _  |/ ___ \ ___) |  _  |
-#    |_| |____|_| |_/_/   \_\____/|_| |_|   T U N N E L
-#
-#   Bootstrap installer  ->  builds & starts the Web Panel, then prints a
-#   login link. The rest of the setup happens inside the panel (in browser).
-#
-#   Usage:
-#     sudo bash install.sh            # default port 2331 (use on IRAN server)
-#     sudo bash install.sh 2332       # custom port    (use on FOREIGN server)
-# ===========================================================================
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PANEL_DIR="${REPO_DIR}/webpanel"
 PANEL_BIN="t2panel"
-# port is decided interactively below (or via arg/env override)
 PANEL_PORT="${1:-${PANEL_PORT:-}}"
 SERVER_ROLE=""
+GO_VERSION="1.22.5"
 
 P=$'\033[38;5;80m'; C=$'\033[38;5;87m'; A=$'\033[38;5;215m'
 G=$'\033[38;5;83m'; R=$'\033[38;5;203m'; D=$'\033[38;5;245m'
@@ -59,10 +45,39 @@ ART
   line
 }
 
+ensure_go() {
+  local need=1
+  if command -v go >/dev/null 2>&1; then
+    local cur major minor
+    cur=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
+    major=$(echo "$cur" | cut -d. -f1)
+    minor=$(echo "$cur" | cut -d. -f2)
+    if [ "${major:-0}" -gt 1 ] 2>/dev/null || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 22 ]; } 2>/dev/null; then
+      need=0
+    fi
+  fi
+  if [ "$need" -eq 1 ]; then
+    local arch goarch
+    arch=$(uname -m)
+    case "$arch" in
+      x86_64) goarch="amd64" ;;
+      aarch64) goarch="arm64" ;;
+      armv7l) goarch="armv6l" ;;
+      *) goarch="amd64" ;;
+    esac
+    apt-get remove -y golang-go >/dev/null 2>&1 || true
+    rm -rf /usr/local/go
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
+    tar -C /usr/local -xzf /tmp/go.tar.gz
+    rm -f /tmp/go.tar.gz
+    grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+  fi
+  export PATH=$PATH:/usr/local/go/bin
+}
+
 if [[ "${EUID}" -ne 0 ]]; then err "run with sudo:  sudo bash install.sh"; exit 1; fi
 banner
 
-# ---- 0) which server is this? (sets the panel port) ----
 if [[ -z "${PANEL_PORT}" ]]; then
   printf "\n  ${W}This server is:${N}\n"
   printf "    ${P}1)${N} Iran server     ${D}(panel port 2331)${N}\n"
@@ -83,10 +98,12 @@ PANEL_ADDR="127.0.0.1:${PANEL_PORT}"
 printf "\n  ${W}1) Prerequisites${N}\n"
 if command -v apt-get >/dev/null 2>&1; then
   spin "apt update"  apt-get update -y
-  spin "install go, libpcap-dev, build-essential, iptables, curl"  apt-get install -y golang-go libpcap-dev build-essential iptables curl
+  spin "install libpcap-dev, build-essential, iptables, curl, tar"  apt-get install -y libpcap-dev build-essential iptables curl tar
 else
-  wrn "apt not found. Install manually: go(>=1.22) libpcap-dev build-essential iptables curl"
+  wrn "apt not found. Install manually: libpcap-dev build-essential iptables curl tar"
 fi
+
+spin "ensure Go >= ${GO_VERSION}"  ensure_go
 if ! command -v go >/dev/null 2>&1; then err "Go not found after install. Install it and re-run."; exit 1; fi
 ok "go ready: $(go version | awk '{print $3}')"
 
@@ -99,10 +116,10 @@ fi
 cd "${PANEL_DIR}"
 [[ -f go.mod ]] || spin "go mod init"  go mod init t2panel
 export GOTOOLCHAIN=local
+export GOPROXY="https://goproxy.io,direct"
 spin "go build (panel)"  go build -trimpath -ldflags "-s -w" -o "${PANEL_BIN}" .
 ok "panel built -> ${PANEL_DIR}/${PANEL_BIN}"
 
-# panel serves panel.html from the repo dir; make sure it's there
 cp -f "${PANEL_DIR}/panel.html" "${REPO_DIR}/panel.html" 2>/dev/null && ok "panel.html در دسترسِ پنل قرار گرفت" || true
 
 printf "\n  ${W}3) Credentials${N}\n"
