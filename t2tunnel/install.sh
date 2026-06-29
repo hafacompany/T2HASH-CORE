@@ -105,6 +105,8 @@ ensure_go() {
     fi
   fi
   export PATH=$PATH:/usr/local/go/bin:/snap/bin
+  go env -w GOPROXY="https://goproxy.io,direct" 2>/dev/null || true
+  go env -w GOSUMDB=off 2>/dev/null || true
 }
 
 if [[ "${EUID}" -ne 0 ]]; then err "run with sudo:  sudo bash install.sh"; exit 1; fi
@@ -158,7 +160,10 @@ fi
 cd "${PANEL_DIR}"
 [[ -f go.mod ]] || spin "go mod init"  go mod init t2panel
 export GOTOOLCHAIN=local
+go env -w GOPROXY="https://goproxy.io,direct" 2>/dev/null || true
+go env -w GOSUMDB=off 2>/dev/null || true
 export GOPROXY="https://goproxy.io,direct"
+export GOSUMDB=off
 spin "go build (panel)"  go build -trimpath -ldflags "-s -w" -o "${PANEL_BIN}" .
 ok "panel built -> ${PANEL_DIR}/${PANEL_BIN}"
 
