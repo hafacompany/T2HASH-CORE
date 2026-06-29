@@ -49,7 +49,7 @@ ensure_go() {
   local need=1
   if command -v go >/dev/null 2>&1; then
     local cur major minor
-    cur=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
+    cur=$(go version 2>/dev/null | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
     major=$(echo "$cur" | cut -d. -f1)
     minor=$(echo "$cur" | cut -d. -f2)
     if [ "${major:-0}" -gt 1 ] 2>/dev/null || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 22 ]; } 2>/dev/null; then
@@ -67,10 +67,17 @@ ensure_go() {
     esac
     apt-get remove -y golang-go >/dev/null 2>&1 || true
     rm -rf /usr/local/go
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
+    local url="https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz"
+    inf "downloading Go ${GO_VERSION} (${goarch})..."
+    if ! curl -fL --retry 3 --connect-timeout 20 "$url" -o /tmp/go.tar.gz; then
+      wrn "go.dev failed, trying mirror..."
+      curl -fL --retry 3 --connect-timeout 20 "https://golang.google.cn/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
+    fi
     tar -C /usr/local -xzf /tmp/go.tar.gz
     rm -f /tmp/go.tar.gz
     grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
   fi
   export PATH=$PATH:/usr/local/go/bin
 }
@@ -103,8 +110,18 @@ else
   wrn "apt not found. Install manually: libpcap-dev build-essential iptables curl tar"
 fi
 
-spin "ensure Go >= ${GO_VERSION}"  ensure_go
-if ! command -v go >/dev/null 2>&1; then err "Go not found after install. Install it and re-run."; exit 1; fi
+inf "ensure Go >= ${GO_VERSION} (may download from go.dev)"
+ensure_go
+export PATH=$PATH:/usr/local/go/bin
+hash -r 2>/dev/null || true
+if ! command -v go >/dev/null 2>&1; then
+  err "Go not found after install."
+  err "try manually:"
+  err "  curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz"
+  err "  rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz"
+  err "  export PATH=\$PATH:/usr/local/go/bin"
+  exit 1
+fi
 ok "go ready: $(go version | awk '{print $3}')"
 
 printf "\n  ${W}2) Build web panel${N}\n"
