@@ -87,7 +87,18 @@ func main() {
 	wsPath := flag.String("ws-path", "/", "[ws] مسیر WebSocket (باید با CDN یکی باشه)")
 	wsHost := flag.String("ws-host", "", "[ws client] هدر Host / دامنه‌ی پشت CDN")
 	wsTLS := flag.Bool("ws-tls", true, "[ws] استفاده از TLS (wss). برای پشت Cloudflare/Arvan روشن باشه")
+	utlsFlag := flag.Bool("utls", false, "[tls/ws client] اثرانگشت TLS رو شبیه مرورگر Chrome کن (دور زدن DPI)")
+	fragFlag := flag.Int("frag", 0, "[tls/ws client] تیکه‌تیکه کردن ClientHello؛ اندازه‌ی هر تیکه به بایت (0=خاموش، مثلا 4)")
 	flag.Parse()
+
+	useUTLS = *utlsFlag
+	fragSize = *fragFlag
+	if useUTLS {
+		log.Printf("[*] uTLS روشن — اثرانگشت TLS شبیه Chrome")
+	}
+	if fragSize > 0 {
+		log.Printf("[*] fragmentation روشن — تیکه‌های %d بایتی ClientHello", fragSize)
+	}
 
 	if *key == "" {
 		log.Fatal("[!] -key الزامیه (دو طرف باید یکسان باشه)")
