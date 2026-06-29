@@ -45,6 +45,22 @@ ART
   line
 }
 
+wait_apt() {
+  local i=0
+  while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
+    if [ "$i" -eq 0 ]; then wrn "apt is locked by another process (unattended-upgrades?). waiting..."; fi
+    i=$((i+1))
+    if [ "$i" -gt 120 ]; then
+      wrn "still locked after 2min — stopping unattended-upgrades"
+      systemctl stop unattended-upgrades >/dev/null 2>&1 || true
+      systemctl stop apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+      sleep 2
+      break
+    fi
+    sleep 1
+  done
+}
+
 ensure_go() {
   local need=1
   if command -v go >/dev/null 2>&1; then
@@ -57,6 +73,13 @@ ensure_go() {
     fi
   fi
   if [ "$need" -eq 1 ]; then
+    if command -v snap >/dev/null 2>&1; then
+      inf "installing Go via snap (works behind sanctions)..."
+      if snap install go --classic >/dev/null 2>&1; then
+        export PATH=$PATH:/snap/bin
+        if command -v go >/dev/null 2>&1; then return 0; fi
+      fi
+    fi
     local arch goarch
     arch=$(uname -m)
     case "$arch" in
@@ -70,16 +93,18 @@ ensure_go() {
     local url="https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz"
     inf "downloading Go ${GO_VERSION} (${goarch})..."
     if ! curl -fL --retry 3 --connect-timeout 20 "$url" -o /tmp/go.tar.gz; then
-      wrn "go.dev failed, trying mirror..."
-      curl -fL --retry 3 --connect-timeout 20 "https://golang.google.cn/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz
+      wrn "go.dev failed (sanctioned?), trying mirror..."
+      curl -fL --retry 3 --connect-timeout 20 "https://golang.google.cn/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" -o /tmp/go.tar.gz || true
     fi
-    tar -C /usr/local -xzf /tmp/go.tar.gz
-    rm -f /tmp/go.tar.gz
-    grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-    ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
-    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
+    if [ -f /tmp/go.tar.gz ]; then
+      tar -C /usr/local -xzf /tmp/go.tar.gz
+      rm -f /tmp/go.tar.gz
+      grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+      ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+      ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
+    fi
   fi
-  export PATH=$PATH:/usr/local/go/bin
+  export PATH=$PATH:/usr/local/go/bin:/snap/bin
 }
 
 if [[ "${EUID}" -ne 0 ]]; then err "run with sudo:  sudo bash install.sh"; exit 1; fi
@@ -104,22 +129,22 @@ PANEL_ADDR="127.0.0.1:${PANEL_PORT}"
 
 printf "\n  ${W}1) Prerequisites${N}\n"
 if command -v apt-get >/dev/null 2>&1; then
+  wait_apt
   spin "apt update"  apt-get update -y
+  wait_apt
   spin "install libpcap-dev, build-essential, iptables, curl, tar"  apt-get install -y libpcap-dev build-essential iptables curl tar
 else
   wrn "apt not found. Install manually: libpcap-dev build-essential iptables curl tar"
 fi
 
-inf "ensure Go >= ${GO_VERSION} (may download from go.dev)"
+inf "ensure Go >= ${GO_VERSION} (snap, or download)"
 ensure_go
-export PATH=$PATH:/usr/local/go/bin
+export PATH=$PATH:/usr/local/go/bin:/snap/bin
 hash -r 2>/dev/null || true
 if ! command -v go >/dev/null 2>&1; then
   err "Go not found after install."
-  err "try manually:"
-  err "  curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz"
-  err "  rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz"
-  err "  export PATH=\$PATH:/usr/local/go/bin"
+  err "try manually:  snap install go --classic"
+  err "then re-run this script."
   exit 1
 fi
 ok "go ready: $(go version | awk '{print $3}')"
