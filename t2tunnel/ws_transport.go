@@ -193,6 +193,8 @@ func dialWS(remote, host, path, sni string, useTLS bool) (net.Conn, error) {
 			MinVersion:         tls.VersionTLS12,
 			MaxVersion:         tls.VersionTLS13,
 		}
+		// when uTLS/frag are enabled, do the TLS handshake ourselves so the
+		// CDN sees a real Chrome fingerprint (and optionally a fragmented hello)
 		if useUTLS || fragSize > 0 {
 			d.NetDialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return dialTLS(addr, sni)
