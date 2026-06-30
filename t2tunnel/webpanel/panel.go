@@ -62,7 +62,7 @@ if [ "$need" -eq 1 ]; then
   fi
 fi
 export PATH=$PATH:/usr/local/go/bin:/snap/bin
-go env -w GOPROXY=https://goproxy.io,direct 2>/dev/null || true
+go env -w GOPROXY=https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct 2>/dev/null || true
 go env -w GOSUMDB=off 2>/dev/null || true
 `
 
@@ -287,7 +287,11 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		cmd = exec.Command("sh", "-c",
 			ensureGoScript+
 				"cd '"+*flagRepo+"' && [ -f go.mod ] || go mod init t2hash/tunnel; "+
-				"export GOTOOLCHAIN=local; export GOPROXY=https://goproxy.io,direct; "+
+				"export GOTOOLCHAIN=local; "+
+				"export GOPROXY=https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct; "+
+				"export GOSUMDB=off; "+
+				"export GOFLAGS=-mod=mod; "+
+				"export HOME=/root; "+
 				"go get github.com/refraction-networking/utls@v1.6.7 && "+
 				"go get github.com/xtaci/kcp-go/v5@v5.6.18 && "+
 				"go get github.com/google/gopacket && go get github.com/gorilla/websocket && go get github.com/xtaci/smux && "+
