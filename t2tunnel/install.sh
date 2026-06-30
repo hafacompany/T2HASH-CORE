@@ -105,8 +105,9 @@ ensure_go() {
     fi
   fi
   export PATH=$PATH:/usr/local/go/bin:/snap/bin
-  go env -w GOPROXY="https://goproxy.io,direct" 2>/dev/null || true
+  go env -w GOPROXY="https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct" 2>/dev/null || true
   go env -w GOSUMDB=off 2>/dev/null || true
+  go env -w GOFLAGS=-mod=mod 2>/dev/null || true
 }
 
 if [[ "${EUID}" -ne 0 ]]; then err "run with sudo:  sudo bash install.sh"; exit 1; fi
